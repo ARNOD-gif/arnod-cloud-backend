@@ -1,12 +1,10 @@
-import flet as ft
-import flet.fastapi as flet_fastapi
 from fastapi import FastAPI, File, UploadFile
+from fastapi.responses import HTMLResponse
 
-# 1. Create FastAPI app with Swagger UI completely DISABLED
+# Disable Swagger UI completely (/docs and /redoc will show 404)
 app = FastAPI(docs_url=None, redoc_url=None)
 
-# --- Your Existing Backend Endpoints ---
-
+# Your API Endpoints
 @app.post("/register")
 async def register():
     return {"message": "User registered successfully"}
@@ -19,41 +17,57 @@ async def login():
 async def upload_file(file: UploadFile = File(...)):
     return {"filename": file.filename, "status": "Uploaded successfully"}
 
-# --- Your Custom Visual Web UI (Replaces Swagger) ---
-
-def main(page: ft.Page):
-    page.title = "ARNOD CLOUD SERVER"
-    page.theme_mode = ft.ThemeMode.DARK
-    page.vertical_alignment = ft.MainAxisAlignment.CENTER
-    page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
-
-    status_text = ft.Text(value="Cloud Backend Active & Healthy ✅", color="green", size=16)
-
-    def on_keyboard_event(e: ft.KeyboardEvent):
-        if e.key.lower() == "r":
-            status_text.value = "Resetting application state..."
-            status_text.color = "amber"
-            page.update()
-
-    page.on_keyboard_event = on_keyboard_event
-
-    page.add(
-        ft.Container(
-            content=ft.Column(
-                controls=[
-                    ft.Text("ARNOD CLOUD SYSTEM", size=28, weight=ft.FontWeight.BOLD),
-                    status_text,
-                    ft.Text("Welcome to the ARNOD Cloud Dashboard!", size=14, color="white70"),
-                    ft.Text("Tip: Press 'R' on your keyboard to reset the view", size=12, color="gray")
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=20,
-            ),
-            padding=40,
-            border_radius=10,
-            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
-        )
-    )
-
-# 2. Mount your Flet visual layout onto the root URL
-app.mount("/", flet_fastapi.app(main))
+# Clean Dark-Mode Web Dashboard at root URL (/)
+@app.get("/", response_class=HTMLResponse)
+async def serve_ui():
+    return """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>ARNOD CLOUD SERVER</title>
+        <style>
+            body {
+                background-color: #121212;
+                color: #ffffff;
+                font-family: Arial, sans-serif;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                margin: 0;
+            }
+            .card {
+                background-color: #1e1e1e;
+                padding: 40px;
+                border-radius: 12px;
+                box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+                text-align: center;
+                max-width: 400px;
+            }
+            h1 {
+                font-size: 26px;
+                margin-bottom: 10px;
+            }
+            .status {
+                color: #4CAF50;
+                font-size: 18px;
+                font-weight: bold;
+                margin: 15px 0;
+            }
+            p {
+                color: #b0b0b0;
+                font-size: 14px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1>ARNOD CLOUD SYSTEM</h1>
+            <div class="status">Cloud Backend Active & Healthy ✅</div>
+            <p>Welcome to the ARNOD Cloud Dashboard!</p>
+        </div>
+    </body>
+    </html>
+    """
