@@ -1,10 +1,19 @@
+import os
 from fastapi import FastAPI, File, UploadFile, Form
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
-# Disable Swagger UI completely (/docs and /redoc will show 404)
+# Disable Swagger UI
 app = FastAPI(docs_url=None, redoc_url=None)
 
-# --- Backend API Endpoints ---
+# Create cloud_storage folder on the server if it doesn't exist
+STORAGE_DIR = "cloud_storage"
+os.makedirs(STORAGE_DIR, exist_ok=True)
+
+# Mount cloud_storage directory so files can be publicly downloaded
+app.mount("/download", StaticFiles(directory=STORAGE_DIR), name="download")
+
+# --- Backend Endpoints ---
 
 @app.post("/register")
 async def register(username: str = Form(""), password: str = Form("")):
@@ -16,9 +25,27 @@ async def login(username: str = Form(""), password: str = Form("")):
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
-    return {"filename": file.filename, "status": "File uploaded successfully to ARNOD Cloud!"}
+    file_path = os.path.join(STORAGE_DIR, file.filename)
+    
+    # Save the file permanently on the cloud server
+    with open(file_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+        
+    download_url = f"/download/{file.filename}"
+    return {
+        "filename": file.filename, 
+        "status": "File uploaded successfully!",
+        "download_url": download_url
+    }
 
-# --- Interactive Web Dashboard with Theme Toggle, Forms & File Controls ---
+@app.get("/files")
+async def list_files():
+    """Returns a list of all files currently stored on the cloud server."""
+    files = os.listdir(STORAGE_DIR)
+    return {"files": files}
+
+# --- Interactive Web Dashboard ---
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_ui():
@@ -81,10 +108,6 @@ async def serve_ui():
                 margin-bottom: 20px;
                 border: 1px solid var(--border-color);
                 box-sizing: border-box;
-            }
-
-            h1, h2 {
-                margin-top: 0;
             }
 
             .status {
@@ -162,6 +185,28 @@ async def serve_ui():
                 display: none;
                 word-break: break-all;
             }
+
+            .file-list {
+                margin-top: 15px;
+                list-style: none;
+                padding: 0;
+            }
+
+            .file-item {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 10px;
+                background-color: var(--input-bg);
+                border-radius: 6px;
+                margin-bottom: 8px;
+            }
+
+            .file-item a {
+                color: var(--accent-color);
+                text-decoration: none;
+                font-weight: bold;
+            }
         </style>
     </head>
     <body>
@@ -173,12 +218,12 @@ async def serve_ui():
 
         <div class="card">
             <div class="status">Cloud Backend Active & Healthy ✅</div>
-            <p style="color: var(--subtext-color);">Manage your cloud account and storage files directly below.</p>
+            <p style="color: var(--subtext-color);">Public Cloud Storage & User Dashboard</p>
             
             <div class="tab-buttons">
                 <button class="tab-btn active" onclick="showTab('login')">Sign In</button>
                 <button class="tab-btn" onclick="showTab('register')">Create Account</button>
-                <button class="tab-btn" onclick="showTab('upload')">Cloud Files</button>
+                <button class="tab-btn" onclick="showTab('upload')">Cloud Storage</button>
             </div>
 
             <!-- Login Form -->
@@ -196,10 +241,15 @@ async def serve_ui():
             </form>
 
             <!-- File Upload Form -->
-            <form id="uploadForm" style="display: none;" onsubmit="handleFileUpload(event)">
-                <input type="file" name="file" required>
-                <button type="submit" class="submit-btn">Upload File to Cloud</button>
-            </form>
+            <div id="uploadSection" style="display: none;">
+                <form onsubmit="handleFileUpload(event)">
+                    <input type="file" name="file" required>
+                    <button type="submit" class="submit-btn">Upload to Public Cloud</button>
+                </form>
+
+                <h3 style="margin-top: 25px;">Available Cloud Files:</h3>
+                <ul id="fileList" class="file-list">Loading files...</ul>
+            </div>
 
             <div id="responseBox" class="response-box"></div>
         </div>
@@ -207,20 +257,21 @@ async def serve_ui():
         <script>
             function toggleTheme() {
                 const currentTheme = document.body.getAttribute('data-theme');
-                const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-                document.body.setAttribute('data-theme', newTheme);
+                document.body.setAttribute('data-theme', currentTheme === 'light' ? 'dark' : 'light');
             }
 
             function showTab(tabName) {
                 document.getElementById('loginForm').style.display = tabName === 'login' ? 'flex' : 'none';
                 document.getElementById('registerForm').style.display = tabName === 'register' ? 'flex' : 'none';
-                document.getElementById('uploadForm').style.display = tabName === 'upload' ? 'flex' : 'none';
+                document.getElementById('uploadSection').style.display = tabName === 'upload' ? 'block' : 'none';
                 
                 const buttons = document.querySelectorAll('.tab-btn');
                 buttons.forEach(btn => btn.classList.remove('active'));
                 event.target.classList.add('active');
 
-                document.getElementById('responseBox').style.display = 'none';
+                if (tabName === 'upload') {
+                    loadCloudFiles();
+                }
             }
 
             async function handleForm(event, endpoint) {
@@ -233,7 +284,7 @@ async def serve_ui():
                     const data = await res.json();
                     responseBox.style.display = 'block';
                     responseBox.style.color = '#4CAF50';
-                    responseBox.innerText = JSON.stringify(data.message || data);
+                    responseBox.innerText = data.message;
                 } catch (err) {
                     responseBox.style.display = 'block';
                     responseBox.style.color = '#f44336';
@@ -251,11 +302,38 @@ async def serve_ui():
                     const data = await res.json();
                     responseBox.style.display = 'block';
                     responseBox.style.color = '#4CAF50';
-                    responseBox.innerText = `${data.status} (${data.filename})`;
+                    responseBox.innerText = `${data.status} Saved as ${data.filename}`;
+                    loadCloudFiles(); // Refresh file list automatically
                 } catch (err) {
                     responseBox.style.display = 'block';
                     responseBox.style.color = '#f44336';
                     responseBox.innerText = "Upload failed.";
+                }
+            }
+
+            async function loadCloudFiles() {
+                const fileList = document.getElementById('fileList');
+                try {
+                    const res = await fetch('/files');
+                    const data = await res.json();
+                    fileList.innerHTML = '';
+                    
+                    if (data.files.length === 0) {
+                        fileList.innerHTML = '<p style="color: var(--subtext-color);">No files uploaded yet.</p>';
+                        return;
+                    }
+
+                    data.files.forEach(filename => {
+                        const li = document.createElement('li');
+                        li.className = 'file-item';
+                        li.innerHTML = `
+                            <span>📄 ${filename}</span>
+                            <a href="/download/${filename}" download target="_blank">Download 📥</a>
+                        `;
+                        fileList.appendChild(li);
+                    });
+                } catch (err) {
+                    fileList.innerHTML = '<p style="color: red;">Failed to load files.</p>';
                 }
             }
         </script>
