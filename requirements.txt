@@ -1,4 +1,5 @@
 fastapi
 uvicorn
 flet
+flet-fastapi
 python-multipart
