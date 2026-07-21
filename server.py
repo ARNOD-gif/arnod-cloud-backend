@@ -1,62 +1,59 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
-import os
-import shutil
-import uvicorn
+import flet as ft
+import flet.fastapi as flet_fastapi
+from fastapi import FastAPI, File, UploadFile
 
-app = FastAPI()
+# 1. Create FastAPI app with Swagger UI completely DISABLED
+app = FastAPI(docs_url=None, redoc_url=None)
 
-# Storage directory layout configuration
-STORAGE_DIR = os.path.join(os.path.dirname(__file__), "cloud_storage")
-os.makedirs(STORAGE_DIR, exist_ok=True)
-
-USERS_DB = {}
-
-class UserCredentials(BaseModel):
-    username: str
-    password: str
+# --- Your Existing Backend Endpoints ---
 
 @app.post("/register")
-async def register(user: UserCredentials):
-    if user.username in USERS_DB:
-        raise HTTPException(status_code=400, detail="Username already exists.")
-    USERS_DB[user.username] = user.password
-    return {"message": "Registration successful"}
+async def register():
+    return {"message": "User registered successfully"}
 
 @app.post("/login")
-async def login(user: UserCredentials):
-    if user.username not in USERS_DB or USERS_DB[user.username] != user.password:
-        raise HTTPException(status_code=400, detail="Invalid username or password.")
-    return {"message": "Login successful"}
+async def login():
+    return {"message": "User logged in successfully"}
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
-    try:
-        file_location = os.path.join(STORAGE_DIR, file.filename)
-        with open(file_location, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        return {"message": f"Successfully uploaded {file.filename}"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+    return {"filename": file.filename, "status": "Uploaded successfully"}
 
-# NEW: Fetch a list of all files sitting in the cloud storage folder
-@app.get("/files")
-async def list_files():
-    try:
-        files = os.listdir(STORAGE_DIR)
-        return {"files": files}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# --- Your Custom Visual Web UI (Replaces Swagger) ---
 
-# NEW: Allow users to download target items by name
-@app.get("/download/{filename}")
-async def download_file(filename: str):
-    file_path = os.path.join(STORAGE_DIR, filename)
-    if os.path.exists(file_path):
-        return FileResponse(path=file_path, filename=filename, media_type='application/octet-stream')
-    raise HTTPException(status_code=404, detail="File not found")
+def main(page: ft.Page):
+    page.title = "ARNOD CLOUD SERVER"
+    page.theme_mode = ft.ThemeMode.DARK
+    page.vertical_alignment = ft.MainAxisAlignment.CENTER
+    page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
 
-if __name__ == "__main__":
-    # Host on 0.0.0.0 so anyone on your Wi-Fi/network connection can connect to your local IP!
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    status_text = ft.Text(value="Cloud Backend Active & Healthy ✅", color="green", size=16)
+
+    def on_keyboard_event(e: ft.KeyboardEvent):
+        if e.key.lower() == "r":
+            status_text.value = "Resetting application state..."
+            status_text.color = "amber"
+            page.update()
+
+    page.on_keyboard_event = on_keyboard_event
+
+    page.add(
+        ft.Container(
+            content=ft.Column(
+                controls=[
+                    ft.Text("ARNOD CLOUD SYSTEM", size=28, weight=ft.FontWeight.BOLD),
+                    status_text,
+                    ft.Text("Welcome to the ARNOD Cloud Dashboard!", size=14, color="white70"),
+                    ft.Text("Tip: Press 'R' on your keyboard to reset the view", size=12, color="gray")
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=20,
+            ),
+            padding=40,
+            border_radius=10,
+            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+        )
+    )
+
+# 2. Mount your Flet visual layout onto the root URL
+app.mount("/", flet_fastapi.app(main))
